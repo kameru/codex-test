@@ -1,0 +1,6 @@
+# Replace these with your real org/team handles.
+# Example: * @my-org/engineering
+* @octocat
+
+# Workflow changes should be reviewed by platform maintainers.
+.github/workflows/* @octocat

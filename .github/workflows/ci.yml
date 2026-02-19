@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate repository basics
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate required files for automation
+        run: |
+          test -f .github/PULL_REQUEST_TEMPLATE.md
+          test -f CODEOWNERS
+          test -f .github/workflows/ai-review.yml
+          test -f .github/workflows/ai-implement.yml
+          test -f .github/workflows/automerge.yml
+
+      - name: Display repository tree summary
+        run: |
+          echo "Repository automation files:"
+          find .github -maxdepth 3 -type f | sort
