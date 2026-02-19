@@ -1,0 +1,47 @@
+name: ai-review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post automated review summary
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+              per_page: 100,
+            });
+
+            const additions = files.reduce((n, f) => n + f.additions, 0);
+            const deletions = files.reduce((n, f) => n + f.deletions, 0);
+            const names = files.slice(0, 20).map(f => `- ${f.filename}`).join('\n') || '- (none)';
+
+            const body = [
+              '## 🤖 Automated Review Summary',
+              '',
+              `- Files changed: ${files.length}`,
+              `- Additions/Deletions: +${additions} / -${deletions}`,
+              '',
+              '### Changed paths',
+              names,
+              '',
+              '_This is an automated metadata review. Human review is still required for risky changes._'
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body,
+            });

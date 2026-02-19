@@ -1,0 +1,89 @@
+name: ai-implement
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: read
+
+jobs:
+  implement:
+    if: github.event.issue.pull_request == null && startsWith(github.event.comment.body, '/ai-run')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Parse instruction
+        id: parse
+        run: |
+          instruction=$(printf '%s' "${{ github.event.comment.body }}" | sed '1s#^/ai-run##' | xargs)
+          if [ -z "$instruction" ]; then
+            instruction="요청된 AI 자동화 작업"
+          fi
+          echo "instruction=$instruction" >> "$GITHUB_OUTPUT"
+
+      - name: Create branch and implementation artifact
+        id: change
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+          TRIGGER_USER: ${{ github.event.comment.user.login }}
+          INSTRUCTION: ${{ steps.parse.outputs.instruction }}
+        run: |
+          branch="ai/issue-${ISSUE_NUMBER}-${GITHUB_RUN_ID}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+
+          mkdir -p ai-runs
+          file="ai-runs/issue-${ISSUE_NUMBER}.md"
+          now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          {
+            echo "# AI Run for Issue #${ISSUE_NUMBER}"
+            echo
+            echo "- Triggered by: @${TRIGGER_USER}"
+            echo "- Trigger time (UTC): ${now}"
+            echo "- Issue: ${ISSUE_TITLE}"
+            echo "- URL: ${ISSUE_URL}"
+            echo
+            echo "## Parsed instruction"
+            echo "${INSTRUCTION}"
+            echo
+            echo "## Raw issue body"
+            echo "${ISSUE_BODY:-_(empty)_}"
+          } > "$file"
+
+          git add "$file"
+          git commit -m "chore(ai): implement issue #${ISSUE_NUMBER} request"
+          git push --set-upstream origin "$branch"
+
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          echo "file=$file" >> "$GITHUB_OUTPUT"
+
+      - name: Create pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          BASE_REF: ${{ github.event.repository.default_branch }}
+          HEAD_REF: ${{ steps.change.outputs.branch }}
+          FILE_PATH: ${{ steps.change.outputs.file }}
+          INSTRUCTION: ${{ steps.parse.outputs.instruction }}
+        run: |
+          title="chore(ai): implement issue #${ISSUE_NUMBER}"
+          body=$(printf '## Summary\n- AI workflow generated an implementation branch from issue #%s\n- Added/updated artifact: %s\n\n## Requested instruction\n%s\n\n## Traceability\n- Trigger: comment `/ai-run ...`\n- Source issue: #%s\n\nCloses #%s\n' "$ISSUE_NUMBER" "$FILE_PATH" "$INSTRUCTION" "$ISSUE_NUMBER" "$ISSUE_NUMBER")
+          gh pr create \
+            --repo "$REPO" \
+            --base "$BASE_REF" \
+            --head "$HEAD_REF" \
+            --title "$title" \
+            --body "$body"
